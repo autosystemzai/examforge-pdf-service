@@ -1,23 +1,19 @@
 import express from "express";
 import multer from "multer";
-import { Pool } from "pg";
 import { extractText } from "./extractText";
+import creditsRouter from "./credits.routes";
+import "./db"; // initializes Postgres pool ONCE
 
-// ---------- Postgres ----------
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
-
-// Test connexion DB au démarrage
-pool.query("select 1")
-  .then(() => console.log("✅ Postgres connected"))
-  .catch((err) => console.error("❌ Postgres connection error", err));
-
-// ---------- Express ----------
 const app = express();
-const upload = multer(); // stockage mémoire (buffer)
+app.use(express.json()); // for JSON bodies
 
+const upload = multer(); // memory storage
+
+// existing route (unchanged)
 app.post("/extract-text", upload.single("file"), extractText);
+
+// credits routes
+app.use("/credits", creditsRouter);
 
 const PORT = process.env.PORT || 3001;
 
