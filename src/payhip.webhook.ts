@@ -1,7 +1,6 @@
 import { Request, Response } from "express";
 import { Pool } from "pg";
 
-// Reuse DATABASE_URL from Railway
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
@@ -16,7 +15,6 @@ export async function payhipWebhook(req: Request, res: Response) {
       return res.status(400).json({ error: "Invalid payload" });
     }
 
-    // Map produit → crédits
     let creditsToAdd = 0;
 
     if (product_name.includes("3")) creditsToAdd = 3;
@@ -29,13 +27,14 @@ export async function payhipWebhook(req: Request, res: Response) {
 
     await pool.query(
       `
-      INSERT INTO users_credits (email, credits, plan, "created-at")
+      INSERT INTO users_credits (email, credits, plan, created_at)
       VALUES ($1, $2, $2, now())
       ON CONFLICT (email)
       DO UPDATE
-        SET credits = users_credits.credits + EXCLUDED.credits
+        SET credits = users_credits.credits + EXCLUDED.credits,
+            plan = EXCLUDED.plan
       `,
-      [email, creditsToAdd]
+      [email.toLowerCase(), creditsToAdd]
     );
 
     return res.json({ success: true, creditsAdded: creditsToAdd });
@@ -44,3 +43,4 @@ export async function payhipWebhook(req: Request, res: Response) {
     return res.status(500).json({ error: "Server error" });
   }
 }
+
