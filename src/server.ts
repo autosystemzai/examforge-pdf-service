@@ -1,3 +1,4 @@
+import cors from "cors";
 import express from "express";
 import multer from "multer";
 import { extractText } from "./extractText";
@@ -10,6 +11,22 @@ const app = express();
 /* ---------- MIDDLEWARES ---------- */
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true })); // safe fallback (form-encoded)
+
+// ✅ CORS (MUST be before routes)
+app.use(
+  cors({
+    origin: [
+      "http://localhost:3000",
+      "https://examforge-v0.vercel.app",
+      "https://examforge-v0.vercel.app/",
+    ],
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type"],
+  })
+);
+
+// (Optional) respond to preflight quickly
+app.options("*", cors());
 
 const upload = multer(); // memory storage
 
