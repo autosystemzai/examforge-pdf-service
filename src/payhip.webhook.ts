@@ -7,9 +7,14 @@ const pool = new Pool({
 
 export async function payhipWebhook(req: Request, res: Response) {
   try {
-    console.log("📦 Payhip webhook received:", req.body);
+    console.log("📦 Payhip webhook received:", JSON.stringify(req.body, null, 2));
 
-    const { email, product_name } = req.body;
+    // ✅ FIX: Payhip real payload structure
+    const email: string | undefined = req.body.email;
+    const product_name: string =
+      req.body.product_name ||
+      req.body.product?.name ||
+      "";
 
     if (!email || !product_name) {
       return res.status(400).json({ error: "Invalid payload" });
@@ -17,11 +22,13 @@ export async function payhipWebhook(req: Request, res: Response) {
 
     let creditsToAdd = 0;
 
-    if (product_name.includes("3")) creditsToAdd = 3;
-    else if (product_name.includes("10")) creditsToAdd = 10;
-    else if (product_name.includes("30")) creditsToAdd = 30;
+    // ✅ FIX: robust matching
+    if (/30/.test(product_name)) creditsToAdd = 30;
+    else if (/10/.test(product_name)) creditsToAdd = 10;
+    else if (/3/.test(product_name)) creditsToAdd = 3;
 
     if (creditsToAdd === 0) {
+      console.error("❌ Unknown product:", product_name);
       return res.status(400).json({ error: "Unknown product" });
     }
 
@@ -43,4 +50,3 @@ export async function payhipWebhook(req: Request, res: Response) {
     return res.status(500).json({ error: "Server error" });
   }
 }
-
