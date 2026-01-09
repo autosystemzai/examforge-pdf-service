@@ -1,4 +1,3 @@
-import cors from "cors";
 import express from "express";
 import multer from "multer";
 import { extractText } from "./extractText";
@@ -10,30 +9,47 @@ const app = express();
 
 /* ---------- MIDDLEWARES ---------- */
 app.use(express.json({ limit: "2mb" }));
-app.use(express.urlencoded({ extended: true })); // safe fallback (form-encoded)
+app.use(express.urlencoded({ extended: true }));
 
-// ✅ CORS (MUST be before routes)
-app.use(
-  cors({
-    origin: [
-      "http://localhost:3000",
-      "https://examforge-v0.vercel.app",
-      "https://examforge-v0.vercel.app/",
-    ],
-    methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type"],
-  })
-);
+// ✅ BUILD DEBUG (to confirm Railway is running THIS code)
+const BUILD_ID =
+  process.env.RAILWAY_GIT_COMMIT_SHA ||
+  process.env.GITHUB_SHA ||
+  `local-${Date.now()}`;
 
-// (Optional) respond to preflight quickly
-app.options("*", cors());
+// ✅ HARD CORS (reflect origin) - MUST be before routes
+app.use((req, res, next) => {
+  const origin = req.headers.origin as string | undefined;
+
+  // debug header (must appear in iwr)
+  res.setHeader("x-examcraft-build", BUILD_ID);
+
+  if (origin) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+  } else {
+    // curl/postman
+    res.setHeader("Access-Control-Allow-Origin", "*");
+  }
+
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
+
+  next();
+});
 
 const upload = multer(); // memory storage
 
 /* ---------- ROUTES ---------- */
 
-// health check (pratique pour tester Railway)
-app.get("/health", (_req, res) => res.json({ ok: true }));
+// health check
+app.get("/health", (_req, res) => {
+  res.json({ ok: true, build: BUILD_ID });
+});
 
 // existing PDF route
 app.post("/extract-text", upload.single("file"), extractText);
@@ -52,5 +68,5 @@ app.post("/webhook/payhip", (req, res) => {
 const PORT = process.env.PORT || 3001;
 
 app.listen(PORT, () => {
-  console.log(`✅ PDF service running on port ${PORT}`);
+  console.log(`✅ PDF service running on port ${PORT} (build=${BUILD_ID})`);
 });
