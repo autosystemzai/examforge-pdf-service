@@ -11,7 +11,7 @@ const app = express();
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
 
-// ✅ BUILD DEBUG (to confirm Railway is running THIS code)
+// ✅ BUILD DEBUG
 const BUILD_ID =
   process.env.RAILWAY_GIT_COMMIT_SHA ||
   process.env.GITHUB_SHA ||
@@ -21,14 +21,12 @@ const BUILD_ID =
 app.use((req, res, next) => {
   const origin = req.headers.origin as string | undefined;
 
-  // debug header (must appear in iwr)
   res.setHeader("x-examcraft-build", BUILD_ID);
 
   if (origin) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
   } else {
-    // curl/postman
     res.setHeader("Access-Control-Allow-Origin", "*");
   }
 
@@ -42,7 +40,15 @@ app.use((req, res, next) => {
   next();
 });
 
-const upload = multer(); // memory storage
+// ✅ Multer config (IMPORTANT)
+// Ajuste la taille selon ton besoin. 25MB est safe pour la plupart des cours.
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 25 * 1024 * 1024, // 25MB
+    files: 1,
+  },
+});
 
 /* ---------- ROUTES ---------- */
 
@@ -51,8 +57,28 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true, build: BUILD_ID });
 });
 
-// existing PDF route
-app.post("/extract-text", upload.single("file"), extractText);
+// PDF route
+app.post("/extract-text", (req, res, next) => {
+  upload.single("file")(req as any, res as any, (err: any) => {
+    if (err) {
+      // ✅ Always return JSON (so your Next route won't crash on JSON.parse)
+      const code =
+        err?.code === "LIMIT_FILE_SIZE" ? 413 : 400;
+
+      return res.status(code).json({
+        status: "ERROR",
+        step: "C5",
+        message:
+          err?.code === "LIMIT_FILE_SIZE"
+            ? "FILE_TOO_LARGE"
+            : "UPLOAD_FAILED",
+        details: err?.message || String(err),
+        build: BUILD_ID,
+      });
+    }
+    next();
+  });
+}, extractText);
 
 // credits routes
 app.use("/credits", creditsRouter);
@@ -62,6 +88,17 @@ app.post("/webhook/payhip", (req, res) => {
   console.log("[payhip webhook] headers:", req.headers["content-type"]);
   console.log("[payhip webhook] body keys:", Object.keys(req.body || {}));
   return payhipWebhook(req, res);
+});
+
+/* ---------- GLOBAL ERROR HANDLER (optional but good) ---------- */
+app.use((err: any, _req: any, res: any, _next: any) => {
+  console.error("UNHANDLED ERROR:", err);
+  return res.status(500).json({
+    status: "ERROR",
+    message: "INTERNAL_ERROR",
+    details: err?.message || String(err),
+    build: BUILD_ID,
+  });
 });
 
 /* ---------- START SERVER ---------- */
