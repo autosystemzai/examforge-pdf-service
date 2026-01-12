@@ -122,7 +122,7 @@ export async function extractText(req: Request, res: Response) {
     }
 
     const cleanedText = cleanText(parsed.text);
-
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
     return res.json({
       status: "OK",
       step: "C5",
