@@ -1,6 +1,7 @@
 // src/extractText.ts
 import pdfParse from "pdf-parse";
 import { cleanText } from "./cleanText";
+import { buildTeachability } from "./teachability";
 import { Request, Response } from "express";
 
 const PAGE_BREAK = "\n<<<PAGE_BREAK>>>\n";
@@ -19,7 +20,9 @@ function median(nums: number[]): number {
 
 function countArabicChars(s: string): number {
   // Arabic block + Arabic supplement + presentation forms (good enough)
-  const m = s.match(/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/g);
+  const m = s.match(
+    /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/g
+  );
   return m ? m.length : 0;
 }
 
@@ -122,14 +125,31 @@ export async function extractText(req: Request, res: Response) {
     }
 
     const cleanedText = cleanText(parsed.text);
+
+    // ✅ NEW: teachability filter (select only pedagogical parts)
+    const teach = buildTeachability(cleanedText);
+
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     return res.json({
       status: "OK",
       step: "C5",
       rawLength: parsed.text.length,
       cleanedLength: cleanedText.length,
+
+      // same as before
       preview: cleanedText.slice(0, 300),
       cleanedText,
+
+      // ✅ NEW: outputs for examforge
+      selectedText: teach.selectedText,
+      selectedCount: teach.selectedParas.length,
+      paragraphsCount: teach.paragraphs.length,
+      cutFrontMatterUntilPage: teach.cutFrontMatterUntilPage,
+      flagsCount: teach.flagsCount,
+      mojibakeRatio: teach.mojibakeRatio,
+
+      // OPTIONAL (debug only):
+      // selectedParas: teach.selectedParas,
     });
   } catch (err: any) {
     console.error("C5 ERROR:", err);

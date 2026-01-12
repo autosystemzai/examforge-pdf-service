@@ -36,8 +36,6 @@ export function cleanText(raw: string): string {
 
   /* =====================
    * 3) Rehydrate lines (critical)
-   * - If a page comes as a single huge line (because pagerender joined by spaces),
-   *   we recreate likely line breaks so TOC + headers are detectable.
    * ===================== */
   const rehydratePage = (p: string) => {
     const trimmed = p.replace(/\n{3,}/g, "\n\n").trim();
@@ -68,7 +66,6 @@ export function cleanText(raw: string): string {
       );
 
       // Break before "عنوان .... 12" style when merged
-      // (helps TOC streak)
       s = s.replace(/\s+(\.{3,}\s*[\d\u0660-\u0669]{1,4})/g, "\n$1");
 
       // Break before page-number-leading titles like: "77٦- ..."
@@ -181,11 +178,13 @@ export function cleanText(raw: string): string {
     return false;
   };
 
-  const afterTocStrip: string[] = [];
+  const afterTocPages: string[][] = [];
   let tocStreak = 0;
   let skippingToc = false;
 
   for (const pageLines of cleanedPagesLines) {
+    const outPage: string[] = [];
+
     for (const l of pageLines) {
       if (isTocLine(l)) tocStreak++;
       else tocStreak = Math.max(0, tocStreak - 1);
@@ -198,9 +197,10 @@ export function cleanText(raw: string): string {
         tocStreak = 0;
       }
 
-      if (!skippingToc) afterTocStrip.push(l);
+      if (!skippingToc) outPage.push(l);
     }
-    afterTocStrip.push(""); // keep page structure
+
+    afterTocPages.push(outPage);
   }
 
   /* =====================
@@ -216,48 +216,54 @@ export function cleanText(raw: string): string {
     return toks.length >= 2;
   };
 
-  let lines = afterTocStrip
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0)
-    .filter((l) => (l.length >= 18 ? true : keepShortLine(l)));
+  const filteredPages: string[][] = afterTocPages.map((page) =>
+    page
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0)
+      .filter((l) => (l.length >= 18 ? true : keepShortLine(l)))
+  );
 
   /* =====================
-   * 10) Controlled dedupe (max 2 occurrences)
+   * 10) Controlled dedupe (max 2 occurrences) – global
    * ===================== */
   const seenCount = new Map<string, number>();
-  lines = lines.filter((l) => {
-    const key = normalizeLineKey(l);
-    const c = (seenCount.get(key) ?? 0) + 1;
-    seenCount.set(key, c);
-    return c <= 2;
-  });
+  const dedupedPages: string[][] = filteredPages.map((page) =>
+    page.filter((l) => {
+      const key = normalizeLineKey(l);
+      const c = (seenCount.get(key) ?? 0) + 1;
+      seenCount.set(key, c);
+      return c <= 2;
+    })
+  );
 
   /* =====================
-   * 11) Recompose
+   * 11) Recompose WITH page breaks
    * ===================== */
-  text = lines.join("\n");
-  text = text.replace(/\n{3,}/g, "\n\n").trim();
+  let recomposed = dedupedPages
+    .map((pageLines) => pageLines.join("\n").replace(/\n{3,}/g, "\n\n").trim())
+    .filter((p) => p.length > 0)
+    .join(`\n${PAGE_BREAK}\n`)
+    .trim();
 
   /* =====================
-   * 12) Safe limit with distributed sampling (coverage)
+   * 12) Safe limit with distributed sampling BY PAGES (coverage)
    * ===================== */
   const MAX_CHARS = 200000;
-  if (text.length > MAX_CHARS) {
-    const k = 5;
-    const window = Math.floor(MAX_CHARS / k);
+  if (recomposed.length > MAX_CHARS) {
+    const pageTexts = recomposed.split(PAGE_BREAK).map((p) => p.trim()).filter(Boolean);
 
-    if (text.length <= window) return text.slice(0, MAX_CHARS);
+    // pick pages evenly
+    const k = Math.min(10, Math.max(5, Math.floor(pageTexts.length / 6))); // 5..10 windows
+    const step = pageTexts.length <= 1 ? 1 : Math.max(1, Math.floor(pageTexts.length / k));
 
-    const maxStart = Math.max(0, text.length - window);
-    const step = k <= 1 ? 0 : Math.floor(maxStart / (k - 1));
-
-    const parts: string[] = [];
-    for (let i = 0; i < k; i++) {
-      const start = Math.min(maxStart, i * step);
-      parts.push(text.slice(start, start + window));
+    const picked: string[] = [];
+    for (let i = 0; i < pageTexts.length; i += step) {
+      picked.push(pageTexts[i]);
+      if (picked.join(`\n${PAGE_BREAK}\n`).length >= MAX_CHARS) break;
     }
-    text = parts.join("\n\n");
+
+    recomposed = picked.join(`\n${PAGE_BREAK}\n`).slice(0, MAX_CHARS).trim();
   }
 
-  return text;
+  return recomposed;
 }
